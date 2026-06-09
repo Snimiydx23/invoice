@@ -1,0 +1,32 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Extraction {
+  id        String   @id @default(cuid())
+  prompt    String
+  status    String   @default("pending")
+  resultData String? // JSON string of extracted data
+  columns   String?  // JSON string of column headers
+  fileCount Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  files     ExtractionFile[]
+}
+
+model ExtractionFile {
+  id           String     @id @default(cuid())
+  extractionId String
+  fileName     String
+  fileType     String
+  fileData     String     // base64 encoded file data
+  createdAt    DateTime   @default(now())
+
+  extraction   Extraction @relation(fields: [extractionId], references: [id], onDelete: Cascade)
+}
