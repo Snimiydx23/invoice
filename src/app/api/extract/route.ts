@@ -79,7 +79,7 @@ async function callLLM(structuringPrompt: string) {
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: 'claude-haiku-4-5',
+      model: 'claude-haiku-4-5-20251001',
       max_tokens: 4096,
       system: 'You are a data structuring assistant. Convert text into valid JSON array of objects. Return ONLY the JSON array, no markdown, no explanation.',
       messages: [{ role: 'user', content: structuringPrompt }]
