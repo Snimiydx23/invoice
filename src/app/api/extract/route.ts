@@ -2,131 +2,93 @@ import { NextRequest, NextResponse } from 'next/server'
 
 export const maxDuration = 300
 
-// AI Provider: Supports z-ai-web-dev-sdk (sandbox) and Google Gemini (production)
+// AI Provider: Uses Claude (Anthropic) API for production
 async function callVLM(extractionPrompt: string, base64Data: string, mimeType: string) {
-  // Strategy 1: Try z-ai-web-dev-sdk (works in sandbox environment)
-  if (!process.env.GEMINI_API_KEY) {
-    try {
-      const ZAI = (await import('z-ai-web-dev-sdk')).default
-      const zai = await ZAI.create()
-      console.log('[Extract] Using z-ai-web-dev-sdk (sandbox mode)')
+  const anthropicApiKey = process.env.ANTHROPIC_API_KEY
 
-      const contentParts: Array<{ type: string; text?: string; image_url?: { url: string }; file_url?: { url: string } }> = [
-        { type: 'text', text: extractionPrompt }
-      ]
-
-      if (mimeType === 'application/pdf') {
-        contentParts.push({
-          type: 'file_url',
-          file_url: { url: `data:${mimeType};base64,${base64Data}` }
-        })
-      } else if (mimeType.startsWith('image/')) {
-        contentParts.push({
-          type: 'image_url',
-          image_url: { url: `data:${mimeType};base64,${base64Data}` }
-        })
-      }
-
-      const response = await zai.chat.completions.createVision({
-        messages: [{ role: 'user', content: contentParts }],
-        thinking: { type: 'disabled' }
-      })
-
-      return response.choices[0]?.message?.content || ''
-    } catch (err) {
-      console.error('[Extract] z-ai-web-dev-sdk failed:', err)
-      throw new Error('AI SDK failed. Set GEMINI_API_KEY environment variable for production use. Get your free key at https://aistudio.google.com/apikey')
-    }
+  if (!anthropicApiKey) {
+    throw new Error('ANTHROPIC_API_KEY environment variable is not set. Please add it in Render dashboard.')
   }
 
-  // Strategy 2: Google Gemini API (production - FREE: 1500 requests/day)
-  console.log('[Extract] Using Google Gemini API (production mode)')
-  const geminiApiKey = process.env.GEMINI_API_KEY
+  console.log('[Extract] Using Claude (Anthropic) API')
 
-  const parts: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }> = [
-    { text: extractionPrompt }
+  const contentParts: Array<Record<string, unknown>> = [
+    { type: 'text', text: extractionPrompt }
   ]
 
-  if (mimeType.startsWith('image/') || mimeType === 'application/pdf') {
-    parts.push({
-      inlineData: {
-        mimeType: mimeType,
+  if (mimeType === 'application/pdf') {
+    contentParts.push({
+      type: 'document',
+      source: {
+        type: 'base64',
+        media_type: 'application/pdf',
+        data: base64Data,
+      }
+    })
+  } else if (mimeType.startsWith('image/')) {
+    contentParts.push({
+      type: 'image',
+      source: {
+        type: 'base64',
+        media_type: mimeType,
         data: base64Data,
       }
     })
   }
 
-  const geminiResponse = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiApiKey}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts }],
-        generationConfig: {
-          temperature: 0.1,
-          maxOutputTokens: 8192,
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': anthropicApiKey,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: 'claude-opus-4-5',
+      max_tokens: 8192,
+      messages: [
+        {
+          role: 'user',
+          content: contentParts,
         }
-      })
-    }
-  )
+      ]
+    })
+  })
 
-  if (!geminiResponse.ok) {
-    const errText = await geminiResponse.text()
-    console.error('[Extract] Gemini API error:', errText)
-    throw new Error(`Gemini API error: ${geminiResponse.status}. Check your GEMINI_API_KEY.`)
+  if (!response.ok) {
+    const errText = await response.text()
+    console.error('[Extract] Claude API error:', errText)
+    throw new Error(`Claude API error: ${response.status}. Check your ANTHROPIC_API_KEY.`)
   }
 
-  const geminiData = await geminiResponse.json()
-  const textContent = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || ''
+  const data = await response.json()
+  const textContent = data.content?.find((b: { type: string }) => b.type === 'text')?.text || ''
   return textContent
 }
 
-// LLM fallback for JSON structuring
+// LLM fallback for JSON structuring using Claude
 async function callLLM(structuringPrompt: string) {
-  // Try z-ai-web-dev-sdk first
-  if (!process.env.GEMINI_API_KEY) {
-    try {
-      const ZAI = (await import('z-ai-web-dev-sdk')).default
-      const zai = await ZAI.create()
-      const llmResponse = await zai.chat.completions.create({
-        messages: [
-          {
-            role: 'assistant',
-            content: 'You are a data structuring assistant. Convert text into valid JSON array of objects. Return ONLY the JSON array, no markdown.'
-          },
-          { role: 'user', content: structuringPrompt }
-        ],
-        thinking: { type: 'disabled' }
-      })
-      return llmResponse.choices[0]?.message?.content || ''
-    } catch {
-      return ''
-    }
-  }
+  const anthropicApiKey = process.env.ANTHROPIC_API_KEY
+  if (!anthropicApiKey) return ''
 
-  // Gemini LLM fallback
-  const geminiApiKey = process.env.GEMINI_API_KEY
-  const geminiResponse = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiApiKey}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{
-          parts: [
-            { text: 'You are a data structuring assistant. Convert text into valid JSON array of objects. Return ONLY the JSON array, no markdown.' },
-            { text: structuringPrompt }
-          ]
-        }],
-        generationConfig: { temperature: 0.1, maxOutputTokens: 8192 }
-      })
-    }
-  )
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': anthropicApiKey,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5',
+      max_tokens: 4096,
+      system: 'You are a data structuring assistant. Convert text into valid JSON array of objects. Return ONLY the JSON array, no markdown, no explanation.',
+      messages: [{ role: 'user', content: structuringPrompt }]
+    })
+  })
 
-  if (!geminiResponse.ok) return ''
-  const geminiData = await geminiResponse.json()
-  return geminiData.candidates?.[0]?.content?.parts?.[0]?.text || ''
+  if (!response.ok) return ''
+  const data = await response.json()
+  return data.content?.find((b: { type: string }) => b.type === 'text')?.text || ''
 }
 
 // Generate a simple unique ID
@@ -206,18 +168,16 @@ RESPONSE FORMAT - Return ONLY a valid JSON array. No markdown, no explanation, j
 ]`
 
         // Call VLM (Vision Language Model)
-        console.log(`[Extract] Calling VLM API for ${file.name}...`)
+        console.log(`[Extract] Calling Claude API for ${file.name}...`)
         const rawContent = await callVLM(extractionPrompt, base64Data, mimeType)
 
-        console.log(`[Extract] VLM response length: ${rawContent.length} chars`)
-        console.log(`[Extract] VLM response preview: ${rawContent.substring(0, 300)}...`)
+        console.log(`[Extract] Claude response length: ${rawContent.length} chars`)
+        console.log(`[Extract] Claude response preview: ${rawContent.substring(0, 300)}...`)
 
-        // Parse the JSON response from VLM
+        // Parse the JSON response
         let extractedRows: Record<string, string>[] = []
 
-        // Try multiple JSON extraction strategies
         try {
-          // Strategy 1: Try to find JSON array directly
           const jsonMatch = rawContent.match(/\[[\s\S]*\]/)
           if (jsonMatch) {
             extractedRows = JSON.parse(jsonMatch[0])
@@ -225,7 +185,6 @@ RESPONSE FORMAT - Return ONLY a valid JSON array. No markdown, no explanation, j
         } catch (parseError1) {
           console.log('[Extract] Strategy 1 failed, trying LLM fallback...')
 
-          // Strategy 2: Use LLM to restructure the VLM output
           try {
             const structuringPrompt = `Convert this extracted text into a JSON array of objects based on this prompt: "${prompt}"\n\nSource file: ${file.name}\n\nExtracted text:\n${rawContent}\n\nReturn ONLY a valid JSON array. Each object must have a "SOURCE FILE" field with value "${file.name}".`
 
@@ -250,10 +209,11 @@ RESPONSE FORMAT - Return ONLY a valid JSON array. No markdown, no explanation, j
       }
 
       console.log(`[Extract] Total extracted rows: ${allExtractedData.length}`)
-    } catch (aiError: any) {
-      console.error('[Extract] AI processing error:', aiError?.message || aiError)
+    } catch (aiError: unknown) {
+      const msg = aiError instanceof Error ? aiError.message : 'Unknown error'
+      console.error('[Extract] AI processing error:', msg)
       return NextResponse.json(
-        { error: `AI processing failed: ${aiError?.message || 'Unknown error'}. Please try again.` },
+        { error: `AI processing failed: ${msg}. Please try again.` },
         { status: 500 }
       )
     }
@@ -293,10 +253,11 @@ RESPONSE FORMAT - Return ONLY a valid JSON array. No markdown, no explanation, j
       columns,
       data: allExtractedData,
     })
-  } catch (error: any) {
-    console.error('[Extract] Unhandled error:', error?.message || error)
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : 'Unknown error'
+    console.error('[Extract] Unhandled error:', msg)
     return NextResponse.json(
-      { error: `Extraction failed: ${error?.message || 'Unknown error'}` },
+      { error: `Extraction failed: ${msg}` },
       { status: 500 }
     )
   }
