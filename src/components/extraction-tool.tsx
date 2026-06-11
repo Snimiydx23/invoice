@@ -178,7 +178,11 @@ export function ExtractionTool() {
         })
       }, 800)
 
-      const res = await fetch('/api/extract', {
+      // ✅ FIX: Seedha Render backend pe call — Vercel proxy se 413 aata tha
+      // Vercel free plan mein /api/extract route pe 4.5MB hard limit hai
+      // Is liye frontend se directly Render URL pe bhejte hain
+      const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://invoice-api-server.onrender.com'
+      const res = await fetch(`${BACKEND_URL}/api/extract`, {
         method: 'POST',
         body: formData,
       })
