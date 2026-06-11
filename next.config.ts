@@ -7,6 +7,12 @@ const nextConfig: NextConfig = {
   },
   reactStrictMode: false,
   serverExternalPackages: ['sharp'],
+  // ✅ FIX: Large file upload ke liye body size limit badhaya
+  experimental: {
+    serverActions: {
+      bodySizeLimit: '500mb',
+    },
+  },
 };
 
 export default nextConfig;
