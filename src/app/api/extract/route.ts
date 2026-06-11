@@ -12,7 +12,7 @@ export async function POST(request: NextRequest) {
 
     console.log(`[Proxy] Forwarding to: ${RENDER_API_URL}/api/extract`)
 
-    const backendResponse = await fetch('https://your-invoice-api-server.onrender.com/api/extract', {
+    const backendResponse = await fetch('https://invoice-api-server.onrender.com/api/extract', {
   method: 'POST',
   body: formData
 })
