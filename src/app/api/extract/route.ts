@@ -1,6 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 export const maxDuration = 300
+export const dynamic = 'force-dynamic'
+
+// ✅ FIX: 413 error fix — Next.js API route body size limit badhaya
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: '500mb',
+    },
+    responseLimit: false,
+  },
+}
 
 // ─── Render Backend URL (hardcoded) ───────────────────────────────────────
 const RENDER_API_URL = "https://invoice-api-server.onrender.com"
@@ -13,9 +24,9 @@ export async function POST(request: NextRequest) {
     console.log(`[Proxy] Forwarding to: ${RENDER_API_URL}/api/extract`)
 
     const backendResponse = await fetch('https://invoice-api-server.onrender.com/api/extract', {
-  method: 'POST',
-  body: formData
-})
+      method: 'POST',
+      body: formData,
+    })
 
     const data = await backendResponse.json()
 
